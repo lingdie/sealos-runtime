@@ -1,0 +1,13 @@
+[Service]
+Environment="KUBELET_KUBECONFIG_ARGS=--bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf"
+Environment="KUBELET_CONFIG_ARGS=--config=/var/lib/kubelet/config.yaml"
+EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
+Environment="KUBELET_EXTRA_ARGS= \
+              {{ if or (not .SEALOS_SYS_KUBE_VERSION) (eq .SEALOS_SYS_KUBE_VERSION "") (not (semverCompare "^1.27.0" .SEALOS_SYS_KUBE_VERSION)) }}--container-runtime=remote{{ end }} \
+              {{ if or (not .SEALOS_SYS_KUBE_VERSION) (eq .SEALOS_SYS_KUBE_VERSION "") (not (semverCompare "^1.27.0" .SEALOS_SYS_KUBE_VERSION)) }}--pod-infra-container-image={{ .registryDomain }}:{{ .registryPort }}/{{ .sandboxImage }}{{ end }} \
+              --runtime-request-timeout=15m \
+              --container-runtime-endpoint=unix://{{ .SEALOS_SYS_CRI_ENDPOINT }} \
+              --image-service-endpoint=unix://{{ .SEALOS_SYS_IMAGE_ENDPOINT }}"
+ExecStart=
+ExecStart={{ default "/usr/bin" .BIN_DIR }}/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_KUBEADM_ARGS $KUBELET_EXTRA_ARGS
+

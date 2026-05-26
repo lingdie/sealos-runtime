@@ -1,0 +1,168 @@
+name: build kubernetes containerd runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      kubernetes_version:
+        description: "Kubernetes version to build, e.g. v1.36.1. Leave empty to build latest patch for all supported minors."
+        required: false
+        default: ""
+      image:
+        description: "Image repository, e.g. ghcr.io/owner/repo/kubernetes"
+        required: false
+        default: ""
+      push:
+        description: "Push images"
+        type: boolean
+        required: true
+        default: false
+      all_images:
+        description: "Save all variants from manifest lists"
+        type: boolean
+        required: true
+        default: false
+
+env:
+  DEFAULT_IMAGE: ghcr.io/${{ github.repository }}/kubernetes
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      versions: ${{ steps.versions.outputs.versions }}
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate layout
+        shell: bash
+        run: scripts/validate-layout.sh
+
+      - id: image
+        shell: bash
+        run: |
+          image="${{ github.event.inputs.image }}"
+          if [ -z "$image" ]; then
+            image="${DEFAULT_IMAGE,,}"
+          fi
+          echo "image=$image" >>"$GITHUB_OUTPUT"
+
+      - id: matrix
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.kubernetes_version }}" ]; then
+            version="${{ github.event.inputs.kubernetes_version }}"
+            version="v${version#v}"
+            matrix="{\"include\":[{\"kubernetes\":\"$version\",\"arch\":\"amd64\",\"runner\":\"ubuntu-24.04\"},{\"kubernetes\":\"$version\",\"arch\":\"arm64\",\"runner\":\"ubuntu-24.04-arm\"}]}"
+          else
+            matrix="$(scripts/resolve-versions.sh --matrix --arches amd64,arm64)"
+          fi
+          echo "$matrix"
+          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
+
+      - id: versions
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.kubernetes_version }}" ]; then
+            version="${{ github.event.inputs.kubernetes_version }}"
+            version="v${version#v}"
+            printf 'versions=%s\n' "$version" >>"$GITHUB_OUTPUT"
+          else
+            versions="$(scripts/resolve-versions.sh --versions-only | paste -sd, -)"
+            printf 'versions=%s\n' "$versions" >>"$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: resolve
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y conntrack lsof buildah
+
+      - name: Install sealos
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            x86_64) arch=amd64 ;;
+            aarch64) arch=arm64 ;;
+            *) echo "unsupported runner arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          tag="$(curl -fsSL https://api.github.com/repos/labring/sealos/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
+          version="${tag#v}"
+          curl -fL --retry 5 -o /tmp/sealos.tgz "https://github.com/labring/sealos/releases/download/${tag}/sealos_${version}_linux_${arch}.tar.gz"
+          sudo tar -xzf /tmp/sealos.tgz -C /usr/local/bin sealos
+          sudo chmod 0755 /usr/local/bin/sealos
+          sealos version
+
+      - name: Login
+        if: ${{ github.event.inputs.push == 'true' }}
+        shell: bash
+        run: |
+          sudo sealos login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io
+
+      - name: Build
+        shell: bash
+        run: |
+          image="${{ needs.resolve.outputs.image }}:${{ matrix.kubernetes }}-${{ matrix.arch }}"
+          args=(
+            --kubernetes-version "${{ matrix.kubernetes }}"
+            --arch "${{ matrix.arch }}"
+            --image "$image"
+            --sealos-version latest
+          )
+          if [ "${{ github.event.inputs.push }}" = "true" ]; then
+            args+=(--push)
+          fi
+          if [ "${{ github.event.inputs.all_images }}" = "true" ]; then
+            args+=(--all)
+          fi
+          sudo -E scripts/build-rootfs.sh "${args[@]}"
+
+  manifest:
+    needs:
+      - resolve
+      - build
+    if: ${{ github.event.inputs.push == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install buildah
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y buildah
+
+      - name: Login
+        shell: bash
+        run: |
+          buildah login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io
+
+      - name: Push manifests
+        shell: bash
+        run: |
+          IFS=',' read -r -a versions <<<"${{ needs.resolve.outputs.versions }}"
+          for version in "${versions[@]}"; do
+            [ -n "$version" ] || continue
+            target="${{ needs.resolve.outputs.image }}:${version}"
+            scripts/create-manifest.sh \
+              --target "$target" \
+              --image "${{ needs.resolve.outputs.image }}:${version}-amd64" \
+              --image "${{ needs.resolve.outputs.image }}:${version}-arm64" \
+              --push
+          done

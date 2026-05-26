@@ -1,0 +1,8 @@
+shim: {{ .SEALOS_SYS_IMAGE_ENDPOINT }}
+cri: {{ .SEALOS_SYS_CRI_ENDPOINT }}
+address: http://{{ .registryDomain }}:{{ .registryPort }}
+force: true
+debug: false
+timeout: 15m
+auth: {{ .registryUsername }}:{{ .registryPassword }}
+

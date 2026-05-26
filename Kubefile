@@ -1,0 +1,28 @@
+FROM scratch
+
+LABEL sealos.io.type="rootfs" \
+      sealos.io.version="v1beta1" \
+      sealos.io.distribution="kubernetes" \
+      init="init.sh" \
+      clean="clean.sh \$criData" \
+      check="check.sh \$registryData" \
+      init-cri="init-cri.sh \$registryDomain \$registryPort" \
+      clean-cri="clean-cri.sh \$criData" \
+      init-registry="init-registry.sh \$registryData \$registryConfig" \
+      clean-registry="clean-registry.sh \$registryData \$registryConfig" \
+      vip="\$defaultVIP"
+
+ENV criData=/var/lib/containerd \
+    registryData=/var/lib/registry \
+    registryConfig=/etc/registry \
+    registryDomain=sealos.hub \
+    registryPort=5000 \
+    registryUsername=admin \
+    registryPassword=passw0rd \
+    disableApparmor=false \
+    defaultVIP=10.103.97.2 \
+    sandboxImage=pause:3.10.2 \
+    SEALOS_SYS_CRI_ENDPOINT=/run/containerd/containerd.sock \
+    SEALOS_SYS_IMAGE_ENDPOINT=/var/run/image-cri-shim.sock
+
+COPY . .
