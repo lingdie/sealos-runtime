@@ -1,6 +1,16 @@
 name: build kubernetes containerd runtime
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build.yml"
+      - ".github/versions/supported-minors.txt"
+      - "Kubefile"
+      - "rootfs/**"
+      - "scripts/**"
+      - "README.md"
   workflow_dispatch:
     inputs:
       kubernetes_version:
@@ -28,6 +38,11 @@ on:
 
 env:
   DEFAULT_IMAGE: ghcr.io/${{ github.repository }}/kubernetes
+  INPUT_KUBERNETES_VERSION: ${{ github.event.inputs.kubernetes_version || '' }}
+  INPUT_ARCH: ${{ github.event.inputs.arch || 'all' }}
+  INPUT_IMAGE: ${{ github.event.inputs.image || '' }}
+  INPUT_PUSH: ${{ github.event.inputs.push || 'false' }}
+  INPUT_ALL_IMAGES: ${{ github.event.inputs.all_images || 'false' }}
 
 jobs:
   resolve:
@@ -46,7 +61,7 @@ jobs:
       - id: image
         shell: bash
         run: |
-          image="${{ github.event.inputs.image }}"
+          image="$INPUT_IMAGE"
           if [ -z "$image" ]; then
             image="${DEFAULT_IMAGE,,}"
           fi
@@ -55,13 +70,13 @@ jobs:
       - id: matrix
         shell: bash
         run: |
-          arches="${{ github.event.inputs.arch }}"
+          arches="$INPUT_ARCH"
           if [ -z "$arches" ] || [ "$arches" = all ]; then
             arches=amd64,arm64
           fi
           args=(--matrix --arches "$arches")
-          if [ -n "${{ github.event.inputs.kubernetes_version }}" ]; then
-            args+=(--kubernetes-version "${{ github.event.inputs.kubernetes_version }}")
+          if [ -n "$INPUT_KUBERNETES_VERSION" ]; then
+            args+=(--kubernetes-version "$INPUT_KUBERNETES_VERSION")
           fi
           matrix="$(scripts/resolve-versions.sh "${args[@]}")"
           echo "$matrix"
@@ -71,8 +86,8 @@ jobs:
         shell: bash
         run: |
           args=(--versions-only)
-          if [ -n "${{ github.event.inputs.kubernetes_version }}" ]; then
-            args+=(--kubernetes-version "${{ github.event.inputs.kubernetes_version }}")
+          if [ -n "$INPUT_KUBERNETES_VERSION" ]; then
+            args+=(--kubernetes-version "$INPUT_KUBERNETES_VERSION")
           fi
           versions="$(scripts/resolve-versions.sh "${args[@]}" | paste -sd, -)"
           printf 'versions=%s\n' "$versions" >>"$GITHUB_OUTPUT"
@@ -111,7 +126,7 @@ jobs:
           sealos version
 
       - name: Login
-        if: ${{ github.event.inputs.push == 'true' }}
+        if: ${{ env.INPUT_PUSH == 'true' }}
         shell: bash
         run: |
           sudo sealos login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io
@@ -126,10 +141,10 @@ jobs:
             --image "$image"
             --sealos-version latest
           )
-          if [ "${{ github.event.inputs.push }}" = "true" ]; then
+          if [ "$INPUT_PUSH" = "true" ]; then
             args+=(--push)
           fi
-          if [ "${{ github.event.inputs.all_images }}" = "true" ]; then
+          if [ "$INPUT_ALL_IMAGES" = "true" ]; then
             args+=(--all)
           fi
           sudo -E scripts/build-rootfs.sh "${args[@]}"
@@ -138,7 +153,7 @@ jobs:
     needs:
       - resolve
       - build
-    if: ${{ github.event.inputs.push == 'true' && github.event.inputs.arch == 'all' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.push == true && inputs.arch == 'all' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
