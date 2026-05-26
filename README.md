@@ -145,6 +145,8 @@ gh workflow run build.yml \
   -f all_images=false
 ```
 
+Pushes to `main` also run the same validation workflow with default inputs.
+
 ## Offline Images
 
 `scripts/build-rootfs.sh` generates `images/shim/DefaultImageList` with:
