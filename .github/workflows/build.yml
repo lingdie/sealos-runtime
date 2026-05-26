@@ -7,6 +7,10 @@ on:
         description: "Kubernetes version to build, e.g. v1.36.1. Leave empty to build latest patch for all supported minors."
         required: false
         default: ""
+      arch:
+        description: "Architecture to build: all, amd64, or arm64"
+        required: true
+        default: all
       image:
         description: "Image repository, e.g. ghcr.io/owner/repo/kubernetes"
         required: false
@@ -51,27 +55,27 @@ jobs:
       - id: matrix
         shell: bash
         run: |
-          if [ -n "${{ github.event.inputs.kubernetes_version }}" ]; then
-            version="${{ github.event.inputs.kubernetes_version }}"
-            version="v${version#v}"
-            matrix="{\"include\":[{\"kubernetes\":\"$version\",\"arch\":\"amd64\",\"runner\":\"ubuntu-24.04\"},{\"kubernetes\":\"$version\",\"arch\":\"arm64\",\"runner\":\"ubuntu-24.04-arm\"}]}"
-          else
-            matrix="$(scripts/resolve-versions.sh --matrix --arches amd64,arm64)"
+          arches="${{ github.event.inputs.arch }}"
+          if [ -z "$arches" ] || [ "$arches" = all ]; then
+            arches=amd64,arm64
           fi
+          args=(--matrix --arches "$arches")
+          if [ -n "${{ github.event.inputs.kubernetes_version }}" ]; then
+            args+=(--kubernetes-version "${{ github.event.inputs.kubernetes_version }}")
+          fi
+          matrix="$(scripts/resolve-versions.sh "${args[@]}")"
           echo "$matrix"
           echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
 
       - id: versions
         shell: bash
         run: |
+          args=(--versions-only)
           if [ -n "${{ github.event.inputs.kubernetes_version }}" ]; then
-            version="${{ github.event.inputs.kubernetes_version }}"
-            version="v${version#v}"
-            printf 'versions=%s\n' "$version" >>"$GITHUB_OUTPUT"
-          else
-            versions="$(scripts/resolve-versions.sh --versions-only | paste -sd, -)"
-            printf 'versions=%s\n' "$versions" >>"$GITHUB_OUTPUT"
+            args+=(--kubernetes-version "${{ github.event.inputs.kubernetes_version }}")
           fi
+          versions="$(scripts/resolve-versions.sh "${args[@]}" | paste -sd, -)"
+          printf 'versions=%s\n' "$versions" >>"$GITHUB_OUTPUT"
 
   build:
     needs: resolve
@@ -134,7 +138,7 @@ jobs:
     needs:
       - resolve
       - build
-    if: ${{ github.event.inputs.push == 'true' }}
+    if: ${{ github.event.inputs.push == 'true' && github.event.inputs.arch == 'all' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read

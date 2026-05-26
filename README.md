@@ -106,9 +106,44 @@ Print a GitHub Actions matrix:
 scripts/resolve-versions.sh --matrix --arches amd64,arm64
 ```
 
+Generate a small matrix for one debug build:
+
+```bash
+scripts/resolve-versions.sh \
+  --matrix \
+  --kubernetes-version v1.36.1 \
+  --arches amd64
+```
+
 The resolver reads `.github/versions/supported-minors.txt` and asks
 `dl.k8s.io` for `stable-<minor>.txt`, so new patch releases do not require a
 repository change.
+
+## GitHub Actions
+
+The workflow is manual-only. By default it builds the latest patch release for
+each supported Kubernetes minor on both `amd64` and `arm64`.
+
+Useful dispatch inputs:
+
+- `kubernetes_version`: set this to a patch version such as `v1.36.1` to build
+  one Kubernetes release instead of every supported minor.
+- `arch`: choose `amd64` or `arm64` to validate one architecture quickly. Keep
+  `all` for a full multi-arch build.
+- `push`: when `false`, the workflow performs build validation without pushing.
+  When `true`, it pushes arch-specific tags and, for `arch=all`, a multi-arch
+  manifest tag.
+
+Example quick validation:
+
+```bash
+gh workflow run build.yml \
+  --repo lingdie/sealos-runtime \
+  -f kubernetes_version=v1.36.1 \
+  -f arch=amd64 \
+  -f push=false \
+  -f all_images=false
+```
 
 ## Offline Images
 
