@@ -1,0 +1,15 @@
+name: dispatch smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "Smoke test message"
+        required: false
+        default: "ok"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "${{ github.event.inputs.message }}"
