@@ -29,10 +29,12 @@ Required labels provided by `Kubefile`:
 - `init`: installs image-cri-shim, kubelet, kubeadm, kubectl, and node sysctl
 - `clean`: removes kubelet and image-cri-shim
 - `check`: performs host preflight checks
+- `sealos.io.kubeadm-config-helper`: points lifecycle at the helper binary
+  inside the mounted rootfs
 
 Important env defaults:
 
-- `SEALOS_SYS_CRI_ENDPOINT=/run/containerd/containerd.sock`
+- `SEALOS_SYS_CRI_ENDPOINT=/var/run/containerd/containerd.sock`
 - `SEALOS_SYS_IMAGE_ENDPOINT=/var/run/image-cri-shim.sock`
 - `registryDomain=sealos.hub`
 - `registryPort=5000`
@@ -41,6 +43,32 @@ Important env defaults:
 The `init` label does not install containerd. Newer sealos lifecycle code runs
 `init-cri` before `init`, so keeping the steps separate avoids double-starting
 containerd.
+
+## Kubeadm Config Helper
+
+Kubernetes config APIs evolve across the supported range. For example, kubeadm
+`v1.27` rejects fields that are emitted by newer kubelet and kube-proxy structs,
+while Kubernetes `v1.31+` needs kubeadm `v1beta4` behavior. To keep version
+knowledge close to the runtime that ships the Kubernetes binaries,
+`scripts/build-rootfs.sh` builds `cmd/kubeadm-config-gen` into every image at:
+
+```text
+/opt/sealos/bin/kubeadm-config-gen
+```
+
+The image advertises the helper through OCI labels:
+
+```text
+sealos.io.kubeadm-config-helper=/opt/sealos/bin/kubeadm-config-gen
+sealos.io.kubeadm-config-helper-api=v1
+sealos.io.kubeadm-config-helper-mode=sanitize
+```
+
+Current sealos lifecycle code discovers those labels after mounting the rootfs,
+runs the helper with the target Kubernetes version, and falls back to its own
+sanitizer only when the image does not provide a helper. The helper keeps
+`v1.30+` config intact and removes pre-`v1.30` kubeadm-incompatible kubelet and
+kube-proxy fields.
 
 ## Build A Single Image
 
@@ -121,8 +149,9 @@ repository change.
 
 ## GitHub Actions
 
-The workflow is manual-only. By default it builds the latest patch release for
-each supported Kubernetes minor on both `amd64` and `arm64`.
+The workflow runs on pushes to `main` and can also be started manually. By
+default it builds the latest patch release for each supported Kubernetes minor
+on both `amd64` and `arm64`.
 
 Useful dispatch inputs:
 
@@ -174,11 +203,12 @@ tmp/                      old runtime and lifecycle references, not used by CI
 
 ## Compatibility Notes
 
-This project uses containerd config `version = 3`, the format introduced for
+This project uses containerd config `version = 3`, the format used by
 containerd 2.x. The default build tracks current containerd 2.x releases. If you
 need to pin containerd 1.7 for an older environment, keep a separate v2 config
 template rather than mixing old and new plugin names in one file.
 
-The lifecycle code in `tmp/lifecycle` currently owns kubeadm config generation,
-cluster init, join, upgrade, and registry sync. This repository only provides
-the rootfs content and the labels/env that lifecycle expects.
+The matching sealos lifecycle branch owns cluster init, join, upgrade, registry
+sync, and helper execution. It must understand `sealos.io.kubeadm-config-helper`
+labels and containerd 2.x cgroup config paths. The `tmp/` directory here is only
+historical reference material.
