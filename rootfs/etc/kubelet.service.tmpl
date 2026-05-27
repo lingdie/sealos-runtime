@@ -1,8 +1,6 @@
 [Unit]
 Description=kubelet: The Kubernetes Node Agent
 Documentation=https://kubernetes.io/docs/
-After=containerd.service image-cri-shim.service
-Wants=containerd.service image-cri-shim.service
 
 [Service]
 ExecStart={{ default "/usr/bin" .BIN_DIR }}/kubelet
@@ -14,4 +12,3 @@ RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
-

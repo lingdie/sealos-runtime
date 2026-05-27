@@ -12,7 +12,7 @@ normalize_endpoint() {
   esac
 }
 
-runtime_endpoint="$(normalize_endpoint "${CONTAINER_RUNTIME_ENDPOINT:-${SEALOS_SYS_CRI_ENDPOINT:-/run/containerd/containerd.sock}}")"
+runtime_endpoint="$(normalize_endpoint "${CONTAINER_RUNTIME_ENDPOINT:-${SEALOS_SYS_CRI_ENDPOINT:-/var/run/containerd/containerd.sock}}")"
 image_endpoint="$(normalize_endpoint "${IMAGE_SERVICE_ENDPOINT:-${SEALOS_SYS_IMAGE_ENDPOINT:-/var/run/image-cri-shim.sock}}")"
 
 for candidate in \

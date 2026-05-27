@@ -1,4 +1,2 @@
-image-endpoint: unix://{{ .SEALOS_SYS_IMAGE_ENDPOINT }}
-runtime-endpoint: unix://{{ .SEALOS_SYS_CRI_ENDPOINT }}
-timeout: 15m
-
+image-endpoint: unix:///var/run/image-cri-shim.sock
+runtime-endpoint: unix:///run/containerd/containerd.sock

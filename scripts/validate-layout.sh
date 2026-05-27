@@ -55,8 +55,12 @@ done
 
 grep -q 'sealos.io.type="rootfs"' "$repo_root/Kubefile" || fail "Kubefile must declare rootfs type"
 grep -q 'sealos.io.distribution="kubernetes"' "$repo_root/Kubefile" || fail "Kubefile must declare kubernetes distribution"
-grep -q 'SEALOS_SYS_CRI_ENDPOINT=/run/containerd/containerd.sock' "$repo_root/Kubefile" || fail "unexpected CRI endpoint"
+grep -q 'SEALOS_SYS_CRI_ENDPOINT=/var/run/containerd/containerd.sock' "$repo_root/Kubefile" || fail "unexpected CRI endpoint"
 grep -q 'SEALOS_SYS_IMAGE_ENDPOINT=/var/run/image-cri-shim.sock' "$repo_root/Kubefile" || fail "unexpected image endpoint"
+grep -q 'address = "/run/containerd/containerd.sock"' "$repo_root/rootfs/etc/config.toml.tmpl" || fail "containerd socket must match tmp/runtime"
+grep -q 'runtime-endpoint: unix:///run/containerd/containerd.sock' "$repo_root/rootfs/etc/crictl.yaml.tmpl" || fail "crictl runtime endpoint must match tmp/runtime"
+grep -q 'SystemdCgroup = true' "$repo_root/rootfs/etc/config.toml.tmpl" || fail "containerd cgroup driver must match tmp/runtime"
+grep -q 'proxy:' "$repo_root/rootfs/etc/registry_config.yml.tmpl" || fail "registry proxy config must match tmp/runtime"
 
 expected_minors="1.27 1.28 1.29 1.30 1.31 1.32 1.33 1.34 1.35 1.36"
 actual_minors="$(grep -vE '^\s*(#|$)' "$repo_root/.github/versions/supported-minors.txt" | xargs)"

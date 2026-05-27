@@ -22,7 +22,7 @@ ENV criData=/var/lib/containerd \
     disableApparmor=false \
     defaultVIP=10.103.97.2 \
     sandboxImage=pause:3.10.2 \
-    SEALOS_SYS_CRI_ENDPOINT=/run/containerd/containerd.sock \
+    SEALOS_SYS_CRI_ENDPOINT=/var/run/containerd/containerd.sock \
     SEALOS_SYS_IMAGE_ENDPOINT=/var/run/image-cri-shim.sock
 
 COPY . .

@@ -18,6 +18,8 @@ http:
       path: /metrics
   headers:
     X-Content-Type-Options: [nosniff]
+proxy:
+  on: true
 health:
   storagedriver:
     enabled: true
@@ -27,4 +29,3 @@ auth:
   htpasswd:
     realm: "Registry Realm"
     path: {{ .registryConfig }}/registry_htpasswd
-
