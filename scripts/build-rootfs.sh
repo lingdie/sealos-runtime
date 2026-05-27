@@ -221,6 +221,7 @@ require_cmd curl
 require_cmd tar
 require_cmd sed
 require_cmd awk
+require_cmd go
 require_cmd sealos
 
 if [ "$(uname -s)" != Linux ]; then
@@ -242,7 +243,7 @@ mkdir -p "$build_context" "$downloads"
 
 cp "$repo_root/Kubefile" "$build_context/Kubefile"
 cp -a "$repo_root/rootfs/." "$build_context/"
-mkdir -p "$build_context/bin" "$build_context/cri" "$build_context/opt" "$build_context/images/shim"
+mkdir -p "$build_context/bin" "$build_context/cri" "$build_context/opt/sealos/bin" "$build_context/images/shim" "$build_context/etc/sealos"
 
 echo "workdir: $workdir"
 echo "context: $build_context"
@@ -251,6 +252,27 @@ download "https://dl.k8s.io/release/${kubernetes_version}/bin/linux/${arch}/kube
 download "https://dl.k8s.io/release/${kubernetes_version}/bin/linux/${arch}/kubectl" "$build_context/bin/kubectl"
 download "https://dl.k8s.io/release/${kubernetes_version}/bin/linux/${arch}/kubelet" "$build_context/bin/kubelet"
 chmod 0755 "$build_context/bin/kubeadm" "$build_context/bin/kubectl" "$build_context/bin/kubelet"
+
+echo "building kubeadm config helper for linux/$arch"
+(
+  cd "$repo_root"
+  GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+    -o "$build_context/opt/sealos/bin/kubeadm-config-gen" ./cmd/kubeadm-config-gen
+)
+
+cat >"$build_context/etc/sealos/runtime.json" <<EOF
+{
+  "apiVersion": "sealos.io/runtime/v1",
+  "kind": "KubernetesRuntime",
+  "kubernetesVersion": "$kubernetes_version",
+  "cri": "containerd",
+  "kubeadmConfigHelper": {
+    "path": "/opt/sealos/bin/kubeadm-config-gen",
+    "apiVersion": "v1",
+    "mode": "sanitize"
+  }
+}
+EOF
 
 containerd_archive="containerd-${containerd_version#v}-linux-${arch}.tar.gz"
 download "https://github.com/containerd/containerd/releases/download/${containerd_version}/${containerd_archive}" "$downloads/$containerd_archive"

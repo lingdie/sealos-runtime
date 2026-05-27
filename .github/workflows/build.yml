@@ -8,6 +8,9 @@ on:
       - ".github/workflows/build.yml"
       - ".github/versions/supported-minors.txt"
       - "Kubefile"
+      - "cmd/**"
+      - "go.mod"
+      - "go.sum"
       - "rootfs/**"
       - "scripts/**"
       - "README.md"
@@ -53,6 +56,10 @@ jobs:
       image: ${{ steps.image.outputs.image }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
       - name: Validate layout
         shell: bash
@@ -103,6 +110,10 @@ jobs:
       matrix: ${{ fromJson(needs.resolve.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
       - name: Install host tools
         shell: bash

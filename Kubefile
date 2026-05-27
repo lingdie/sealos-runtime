@@ -3,6 +3,9 @@ FROM scratch
 LABEL sealos.io.type="rootfs" \
       sealos.io.version="v1beta1" \
       sealos.io.distribution="kubernetes" \
+      sealos.io.kubeadm-config-helper="/opt/sealos/bin/kubeadm-config-gen" \
+      sealos.io.kubeadm-config-helper-api="v1" \
+      sealos.io.kubeadm-config-helper-mode="sanitize" \
       init="init.sh" \
       clean="clean.sh \$criData" \
       check="check.sh \$registryData" \

@@ -55,6 +55,8 @@ done
 
 grep -q 'sealos.io.type="rootfs"' "$repo_root/Kubefile" || fail "Kubefile must declare rootfs type"
 grep -q 'sealos.io.distribution="kubernetes"' "$repo_root/Kubefile" || fail "Kubefile must declare kubernetes distribution"
+grep -q 'sealos.io.kubeadm-config-helper="/opt/sealos/bin/kubeadm-config-gen"' "$repo_root/Kubefile" || fail "Kubefile must declare kubeadm config helper"
+grep -q 'sealos.io.kubeadm-config-helper-api="v1"' "$repo_root/Kubefile" || fail "Kubefile must declare kubeadm config helper API"
 grep -q 'SEALOS_SYS_CRI_ENDPOINT=/var/run/containerd/containerd.sock' "$repo_root/Kubefile" || fail "unexpected CRI endpoint"
 grep -q 'SEALOS_SYS_IMAGE_ENDPOINT=/var/run/image-cri-shim.sock' "$repo_root/Kubefile" || fail "unexpected image endpoint"
 grep -q 'address = "/run/containerd/containerd.sock"' "$repo_root/rootfs/etc/config.toml.tmpl" || fail "containerd socket must match tmp/runtime"
@@ -67,5 +69,6 @@ actual_minors="$(grep -vE '^\s*(#|$)' "$repo_root/.github/versions/supported-min
 [ "$actual_minors" = "$expected_minors" ] || fail "supported minors mismatch: $actual_minors"
 
 bash -n "$repo_root"/scripts/*.sh "$repo_root"/rootfs/scripts/*.sh
+go test ./cmd/kubeadm-config-gen
 
 echo "layout ok"
