@@ -5,6 +5,7 @@ source common.sh
 
 storage=${1:-/var/lib/containerd}
 bin_dir=${BIN_DIR:-/usr/bin}
+local_bin_dir=${LOCAL_BIN_DIR:-/usr/local/bin}
 
 disable_and_stop containerd.service
 
@@ -24,7 +25,15 @@ rm -f "$bin_dir/containerd" \
       "$bin_dir/ctd-decoder" \
       "$bin_dir/runc" \
       "$bin_dir/crictl" \
+      "$bin_dir/crictl.real" \
       "$bin_dir/nerdctl"
+
+if [ -f "$local_bin_dir/crictl" ] && grep -q 'sealos-runtime crictl wrapper' "$local_bin_dir/crictl" 2>/dev/null; then
+  rm -f "$local_bin_dir/crictl"
+fi
+if [ -e "$local_bin_dir/crictl.sealos-backup" ]; then
+  mv "$local_bin_dir/crictl.sealos-backup" "$local_bin_dir/crictl"
+fi
 
 rm -f /etc/crictl.yaml
 rm -rf /opt/containerd
@@ -32,4 +41,3 @@ rm -f /etc/ld.so.conf.d/containerd.conf
 command_exists ldconfig && ldconfig || true
 
 log "containerd runtime cleaned"
-

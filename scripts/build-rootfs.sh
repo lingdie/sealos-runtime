@@ -105,6 +105,19 @@ install_from_candidates() {
   return 1
 }
 
+set_kubefile_env_default() {
+  local file=$1
+  local key=$2
+  local value=$3
+  awk -v key="$key" -v value="$value" '
+    $0 ~ "^[[:space:]]*" key "=" {
+      sub(key "=[^[:space:]\\\\]*", key "=" value)
+    }
+    { print }
+  ' "$file" >"$file.tmp"
+  mv "$file.tmp" "$file"
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
   --kubernetes-version)
@@ -334,6 +347,7 @@ if [ -n "$sandbox_image" ]; then
   pause_image="$sandbox_image"
 fi
 sandbox_image="${pause_image#*/}"
+set_kubefile_env_default "$build_context/Kubefile" sandboxImage "$sandbox_image"
 
 KUBECONFIG=/dev/null "$native_kubeadm" config images list --kubernetes-version "$kubernetes_version" >"$build_context/images/shim/DefaultImageList"
 if ! grep -qxF "$pause_image" "$build_context/images/shim/DefaultImageList"; then

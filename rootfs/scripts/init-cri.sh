@@ -6,6 +6,7 @@ source common.sh
 registry_domain=${1:-sealos.hub}
 registry_port=${2:-5000}
 bin_dir=${BIN_DIR:-/usr/bin}
+local_bin_dir=${LOCAL_BIN_DIR:-/usr/local/bin}
 
 mkdir -p /etc/containerd/certs.d "$bin_dir"
 
@@ -24,7 +25,13 @@ if [ -f ../cri/runc ]; then
 fi
 
 if [ -f ../cri/crictl ]; then
-  install_binary ../cri/crictl "$bin_dir/crictl"
+  install_binary ../cri/crictl "$bin_dir/crictl.real"
+  install_binary ../scripts/crictl-wrapper.sh "$bin_dir/crictl"
+  mkdir -p "$local_bin_dir"
+  if [ -e "$local_bin_dir/crictl" ] && ! grep -q 'sealos-runtime crictl wrapper' "$local_bin_dir/crictl" 2>/dev/null; then
+    mv "$local_bin_dir/crictl" "$local_bin_dir/crictl.sealos-backup"
+  fi
+  install_binary ../scripts/crictl-wrapper.sh "$local_bin_dir/crictl"
 fi
 
 if [ -f ../cri/nerdctl ]; then
@@ -38,4 +45,3 @@ install_file ../etc/crictl.yaml /etc/crictl.yaml
 enable_and_restart containerd.service
 check_status containerd.service
 log "containerd runtime initialized"
-

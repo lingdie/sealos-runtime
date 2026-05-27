@@ -17,6 +17,7 @@ required_scripts=(
   clean-shim.sh
   kubelet-pre-start.sh
   kubelet-post-stop.sh
+  crictl-wrapper.sh
   common.sh
 )
 
@@ -64,4 +65,3 @@ actual_minors="$(grep -vE '^\s*(#|$)' "$repo_root/.github/versions/supported-min
 bash -n "$repo_root"/scripts/*.sh "$repo_root"/rootfs/scripts/*.sh
 
 echo "layout ok"
-
