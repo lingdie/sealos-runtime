@@ -161,6 +161,8 @@ jobs:
 
       - name: Build
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           image="${{ needs.resolve.outputs.image }}:${{ matrix.kubernetes }}-${{ matrix.arch }}"
           args=(
