@@ -71,8 +71,12 @@ require_cmd() {
 download() {
   local url=$1
   local out=$2
+  local curl_args=(-fL --retry 8 --retry-all-errors --retry-delay 5)
+  if [ -n "${GH_TOKEN:-}" ] && [[ "$url" == https://github.com/* || "$url" == https://api.github.com/* ]]; then
+    curl_args+=(-H "Authorization: Bearer ${GH_TOKEN}")
+  fi
   echo "download $url"
-  curl -fL --retry 5 --retry-delay 2 -o "$out" "$url"
+  curl "${curl_args[@]}" -o "$out" "$url"
 }
 
 extract_tar_strip() {
@@ -85,7 +89,11 @@ extract_tar_strip() {
 
 latest_github_release() {
   local repo=$1
-  curl -fsSL "https://api.github.com/repos/$repo/releases/latest" |
+  local curl_args=(-fsSL)
+  if [ -n "${GH_TOKEN:-}" ]; then
+    curl_args+=(-H "Authorization: Bearer ${GH_TOKEN}" -H "X-GitHub-Api-Version: 2022-11-28")
+  fi
+  curl "${curl_args[@]}" "https://api.github.com/repos/$repo/releases/latest" |
     sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' |
     head -n 1
 }
@@ -128,10 +136,10 @@ kubernetes_module_go_version() {
   27 | 28) echo "1.20" ;;
   29) echo "1.21" ;;
   30 | 31) echo "1.22" ;;
-  32) echo "1.23" ;;
-  33 | 34) echo "1.24" ;;
-  35) echo "1.25" ;;
-  36) echo "1.26" ;;
+  32) echo "1.23.0" ;;
+  33 | 34) echo "1.24.0" ;;
+  35) echo "1.25.0" ;;
+  36) echo "1.26.0" ;;
   *)
     echo "unsupported Kubernetes minor for helper Go version: 1.$minor" >&2
     return 1

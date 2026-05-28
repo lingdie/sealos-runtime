@@ -20,10 +20,10 @@ build_helper() {
   27 | 28) module_go_version="1.20" ;;
   29) module_go_version="1.21" ;;
   30 | 31) module_go_version="1.22" ;;
-  32) module_go_version="1.23" ;;
-  33 | 34) module_go_version="1.24" ;;
-  35) module_go_version="1.25" ;;
-  36) module_go_version="1.26" ;;
+  32) module_go_version="1.23.0" ;;
+  33 | 34) module_go_version="1.24.0" ;;
+  35) module_go_version="1.25.0" ;;
+  36) module_go_version="1.26.0" ;;
   *)
     echo "unsupported Kubernetes minor for helper Go version: 1.$minor" >&2
     return 1
