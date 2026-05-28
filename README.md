@@ -47,7 +47,7 @@ containerd.
 ## Kubeadm Config Helper
 
 Kubernetes config APIs evolve across the supported range. For example, kubeadm
-`v1.27` rejects fields that are emitted by newer kubelet and kube-proxy structs,
+`v1.27` rejects fields that exist in newer kubelet and kube-proxy config APIs,
 while Kubernetes `v1.31+` needs kubeadm `v1beta4` behavior. To keep version
 knowledge close to the runtime that ships the Kubernetes binaries,
 `scripts/build-rootfs.sh` builds `cmd/kubeadm-config-gen` into every image at:
@@ -64,11 +64,17 @@ sealos.io.kubeadm-config-helper-api=v1
 sealos.io.kubeadm-config-helper-mode=sanitize
 ```
 
+The helper is compiled per Kubernetes patch version. For a runtime image built
+with Kubernetes `v1.27.16`, the helper build links `k8s.io/kubelet`,
+`k8s.io/kube-proxy`, and `k8s.io/apimachinery` at `v0.27.16`; for Kubernetes
+`v1.36.1`, it links the same modules at `v0.36.1`. The helper uses those linked
+component config types to derive the kubelet and kube-proxy YAML schema and
+prunes only fields unknown to that exact Kubernetes version, while preserving
+the original values and formatting shape of known fields.
+
 Current sealos lifecycle code discovers those labels after mounting the rootfs,
 runs the helper with the target Kubernetes version, and falls back to its own
-sanitizer only when the image does not provide a helper. The helper keeps
-`v1.30+` config intact and removes pre-`v1.30` kubeadm-incompatible kubelet and
-kube-proxy fields.
+sanitizer only when the image does not provide a helper.
 
 ## Build A Single Image
 

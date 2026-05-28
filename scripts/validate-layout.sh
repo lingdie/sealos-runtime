@@ -70,5 +70,6 @@ actual_minors="$(grep -vE '^\s*(#|$)' "$repo_root/.github/versions/supported-min
 
 bash -n "$repo_root"/scripts/*.sh "$repo_root"/rootfs/scripts/*.sh
 go test ./cmd/kubeadm-config-gen
+"$repo_root/scripts/test-versioned-helper.sh"
 
 echo "layout ok"

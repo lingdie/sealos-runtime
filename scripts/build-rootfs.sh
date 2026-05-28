@@ -105,6 +105,68 @@ install_from_candidates() {
   return 1
 }
 
+kubernetes_module_version() {
+  local version=${1#v}
+  local major minor patch
+  IFS=. read -r major minor patch _ <<<"$version"
+  if [ "$major" != 1 ] || [ -z "$minor" ] || [ -z "$patch" ]; then
+    echo "invalid Kubernetes version for Go module mapping: $1" >&2
+    return 1
+  fi
+  echo "v0.${minor}.${patch}"
+}
+
+kubernetes_module_go_version() {
+  local version=${1#v}
+  local major minor patch
+  IFS=. read -r major minor patch _ <<<"$version"
+  if [ "$major" != 1 ] || [ -z "$minor" ]; then
+    echo "invalid Kubernetes version for Go version mapping: $1" >&2
+    return 1
+  fi
+  case "$minor" in
+  27 | 28) echo "1.20" ;;
+  29) echo "1.21" ;;
+  30 | 31) echo "1.22" ;;
+  32) echo "1.23" ;;
+  33 | 34) echo "1.24" ;;
+  35) echo "1.25" ;;
+  36) echo "1.26" ;;
+  *)
+    echo "unsupported Kubernetes minor for helper Go version: 1.$minor" >&2
+    return 1
+    ;;
+  esac
+}
+
+build_kubeadm_config_helper() {
+  local kubernetes_version=$1
+  local arch=$2
+  local out=$3
+  local module_version module_go_version helper_build_dir
+
+  module_version="$(kubernetes_module_version "$kubernetes_version")"
+  module_go_version="$(kubernetes_module_go_version "$kubernetes_version")"
+  helper_build_dir="$downloads/kubeadm-config-helper-${kubernetes_version}-${arch}"
+  rm -rf "$helper_build_dir"
+  mkdir -p "$helper_build_dir"
+
+  echo "building kubeadm config helper for linux/$arch with k8s modules $module_version and Go $module_go_version"
+  (
+    cd "$helper_build_dir"
+    go mod init sealos-runtime-helper-build >/dev/null
+    go mod edit -go="$module_go_version"
+    go mod edit \
+      -require="github.com/lingdie/sealos-runtime@v0.0.0" \
+      -replace="github.com/lingdie/sealos-runtime=$repo_root" \
+      -require="k8s.io/apimachinery@$module_version" \
+      -require="k8s.io/kubelet@$module_version" \
+      -require="k8s.io/kube-proxy@$module_version"
+    GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -mod=mod -trimpath -ldflags="-s -w" \
+      -o "$out" github.com/lingdie/sealos-runtime/cmd/kubeadm-config-gen
+  )
+}
+
 set_kubefile_env_default() {
   local file=$1
   local key=$2
@@ -253,12 +315,7 @@ download "https://dl.k8s.io/release/${kubernetes_version}/bin/linux/${arch}/kube
 download "https://dl.k8s.io/release/${kubernetes_version}/bin/linux/${arch}/kubelet" "$build_context/bin/kubelet"
 chmod 0755 "$build_context/bin/kubeadm" "$build_context/bin/kubectl" "$build_context/bin/kubelet"
 
-echo "building kubeadm config helper for linux/$arch"
-(
-  cd "$repo_root"
-  GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
-    -o "$build_context/opt/sealos/bin/kubeadm-config-gen" ./cmd/kubeadm-config-gen
-)
+build_kubeadm_config_helper "$kubernetes_version" "$arch" "$build_context/opt/sealos/bin/kubeadm-config-gen"
 
 cat >"$build_context/etc/sealos/runtime.json" <<EOF
 {

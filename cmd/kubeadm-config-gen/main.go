@@ -7,13 +7,32 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
+	"reflect"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	yamlv3 "gopkg.in/yaml.v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubeproxyconfig "k8s.io/kube-proxy/config/v1alpha1"
+	kubeletconfig "k8s.io/kubelet/config/v1beta1"
 )
 
 const helperAPIVersion = "v1"
+
+var schemaByKind = map[string]*schemaNode{
+	"KubeletConfiguration":    buildSchema(reflect.TypeOf(kubeletconfig.KubeletConfiguration{})),
+	"KubeProxyConfiguration":  buildSchema(reflect.TypeOf(kubeproxyconfig.KubeProxyConfiguration{})),
+	"ClusterConfiguration":    nil,
+	"InitConfiguration":       nil,
+	"JoinConfiguration":       nil,
+	"UpgradeConfiguration":    nil,
+	"ResetConfiguration":      nil,
+	"ClusterStatus":           nil,
+	"DNSAddOn":                nil,
+	"BootstrapToken":          nil,
+	"Output":                  nil,
+	"APIEndpoint":             nil,
+	"NodeRegistrationOptions": nil,
+}
 
 func main() {
 	if err := run(os.Args[1:], os.Stdin, os.Stdout); err != nil {
@@ -46,7 +65,7 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		out, err := sanitizeKubeadmConfig(raw, *kubernetesVersion)
+		out, err := sanitizeKubeadmConfig(raw)
 		if err != nil {
 			return err
 		}
@@ -60,19 +79,11 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 }
 
-func sanitizeKubeadmConfig(raw []byte, kubernetesVersion string) ([]byte, error) {
-	minor, err := kubernetesMinor(kubernetesVersion)
-	if err != nil {
-		return nil, err
-	}
-	if minor >= 30 {
-		return raw, nil
-	}
-
-	decoder := yaml.NewDecoder(bytes.NewReader(raw))
-	docs := make([]*yaml.Node, 0)
+func sanitizeKubeadmConfig(raw []byte) ([]byte, error) {
+	decoder := yamlv3.NewDecoder(bytes.NewReader(raw))
+	docs := make([]*yamlv3.Node, 0)
 	for {
-		var doc yaml.Node
+		var doc yamlv3.Node
 		err := decoder.Decode(&doc)
 		if errors.Is(err, io.EOF) {
 			break
@@ -83,7 +94,9 @@ func sanitizeKubeadmConfig(raw []byte, kubernetesVersion string) ([]byte, error)
 		if isEmptyDocument(&doc) {
 			continue
 		}
-		sanitizeDocument(&doc)
+		if err := sanitizeDocument(&doc); err != nil {
+			return nil, err
+		}
 		docs = append(docs, &doc)
 	}
 	if len(docs) == 0 {
@@ -91,7 +104,7 @@ func sanitizeKubeadmConfig(raw []byte, kubernetesVersion string) ([]byte, error)
 	}
 
 	var out bytes.Buffer
-	encoder := yaml.NewEncoder(&out)
+	encoder := yamlv3.NewEncoder(&out)
 	encoder.SetIndent(2)
 	for _, doc := range docs {
 		if err := encoder.Encode(doc); err != nil {
@@ -105,115 +118,180 @@ func sanitizeKubeadmConfig(raw []byte, kubernetesVersion string) ([]byte, error)
 	return out.Bytes(), nil
 }
 
-func kubernetesMinor(version string) (int, error) {
-	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
-	parts := strings.Split(version, ".")
-	if len(parts) < 2 {
-		return 0, fmt.Errorf("invalid Kubernetes version %q", version)
-	}
-	if parts[0] != "1" {
-		return 0, fmt.Errorf("unsupported Kubernetes major version %q", parts[0])
-	}
-	minor, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return 0, fmt.Errorf("invalid Kubernetes minor version %q: %w", parts[1], err)
-	}
-	return minor, nil
-}
-
-func sanitizeDocument(doc *yaml.Node) {
+func sanitizeDocument(doc *yamlv3.Node) error {
 	mapping := documentMapping(doc)
 	if mapping == nil {
-		return
+		return nil
 	}
 
-	switch scalarValue(mapping, "kind") {
-	case "KubeletConfiguration":
-		deleteMappingKeys(mapping,
-			"containerLogMaxWorkers",
-			"containerLogMonitorInterval",
-			"imageMaximumGCAge",
-			"podLogsDir",
-		)
-		deleteNestedMappingKey(mapping, "logging", "options", "text")
-	case "KubeProxyConfiguration":
-		deleteMappingKeys(mapping, "logging", "nftables")
-		deleteNestedMappingKey(mapping, "conntrack", "tcpBeLiberal")
-		deleteNestedMappingKey(mapping, "conntrack", "udpStreamTimeout")
-		deleteNestedMappingKey(mapping, "conntrack", "udpTimeout")
+	kind := scalarValue(mapping, "kind")
+	schema, ok := schemaByKind[kind]
+	if !ok || schema == nil {
+		return nil
+	}
+	if err := pruneUnknownFields(mapping, schema); err != nil {
+		return fmt.Errorf("sanitize %s: %w", kind, err)
+	}
+	return nil
+}
+
+type schemaNode struct {
+	fields      map[string]*schemaNode
+	preserveMap bool
+}
+
+func buildSchema(t reflect.Type) *schemaNode {
+	t = dereferenceType(t)
+	if t.Kind() != reflect.Struct {
+		return &schemaNode{preserveMap: true}
+	}
+
+	schema := &schemaNode{fields: map[string]*schemaNode{}}
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "-" {
+			continue
+		}
+		if isInlineField(jsonTag) {
+			mergeInlineSchema(schema, buildSchema(field.Type))
+			continue
+		}
+		name := jsonFieldName(field)
+		if name == "" {
+			continue
+		}
+		schema.fields[name] = buildFieldSchema(field.Type)
+	}
+	return schema
+}
+
+func buildFieldSchema(t reflect.Type) *schemaNode {
+	t = dereferenceType(t)
+	switch t.Kind() {
+	case reflect.Struct:
+		if t == reflect.TypeOf(metav1.Duration{}) || t.PkgPath() == "time" {
+			return &schemaNode{preserveMap: true}
+		}
+		return buildSchema(t)
+	case reflect.Slice, reflect.Array:
+		return buildFieldSchema(t.Elem())
+	case reflect.Map:
+		return &schemaNode{preserveMap: true}
+	default:
+		return &schemaNode{preserveMap: true}
 	}
 }
 
-func isEmptyDocument(doc *yaml.Node) bool {
-	if doc.Kind == 0 {
+func dereferenceType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t
+}
+
+func isInlineField(jsonTag string) bool {
+	if jsonTag == ",inline" {
 		return true
 	}
-	if doc.Kind == yaml.DocumentNode && len(doc.Content) == 0 {
-		return true
-	}
-	if doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 {
-		return doc.Content[0].Kind == yaml.ScalarNode && doc.Content[0].Value == ""
+	for _, part := range strings.Split(jsonTag, ",") {
+		if part == "inline" {
+			return true
+		}
 	}
 	return false
 }
 
-func documentMapping(doc *yaml.Node) *yaml.Node {
-	if doc.Kind == yaml.DocumentNode {
+func mergeInlineSchema(dst, src *schemaNode) {
+	if dst == nil || src == nil {
+		return
+	}
+	if dst.fields == nil {
+		dst.fields = map[string]*schemaNode{}
+	}
+	for name, child := range src.fields {
+		dst.fields[name] = child
+	}
+}
+
+func jsonFieldName(field reflect.StructField) string {
+	tag := field.Tag.Get("json")
+	if tag == "" {
+		return field.Name
+	}
+	name, _, _ := strings.Cut(tag, ",")
+	return name
+}
+
+func pruneUnknownFields(node *yamlv3.Node, schema *schemaNode) error {
+	if node == nil || schema == nil || schema.preserveMap {
+		return nil
+	}
+
+	if node.Kind == yamlv3.SequenceNode {
+		for _, item := range node.Content {
+			if err := pruneUnknownFields(item, schema); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if node.Kind != yamlv3.MappingNode {
+		return nil
+	}
+
+	out := node.Content[:0]
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i]
+		value := node.Content[i+1]
+		childSchema, ok := schema.fields[key.Value]
+		if !ok {
+			continue
+		}
+		if err := pruneUnknownFields(value, childSchema); err != nil {
+			return err
+		}
+		out = append(out, key, value)
+	}
+	node.Content = out
+	return nil
+}
+
+func isEmptyDocument(doc *yamlv3.Node) bool {
+	if doc.Kind == 0 {
+		return true
+	}
+	if doc.Kind == yamlv3.DocumentNode && len(doc.Content) == 0 {
+		return true
+	}
+	if doc.Kind == yamlv3.DocumentNode && len(doc.Content) == 1 {
+		return doc.Content[0].Kind == yamlv3.ScalarNode && doc.Content[0].Value == ""
+	}
+	return false
+}
+
+func documentMapping(doc *yamlv3.Node) *yamlv3.Node {
+	if doc.Kind == yamlv3.DocumentNode {
 		if len(doc.Content) == 0 {
 			return nil
 		}
 		doc = doc.Content[0]
 	}
-	if doc.Kind != yaml.MappingNode {
+	if doc.Kind != yamlv3.MappingNode {
 		return nil
 	}
 	return doc
 }
 
-func scalarValue(mapping *yaml.Node, key string) string {
+func scalarValue(mapping *yamlv3.Node, key string) string {
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		if mapping.Content[i].Value == key {
 			return mapping.Content[i+1].Value
 		}
 	}
 	return ""
-}
-
-func deleteMappingKeys(mapping *yaml.Node, keys ...string) {
-	wanted := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		wanted[key] = struct{}{}
-	}
-
-	out := mapping.Content[:0]
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if _, ok := wanted[mapping.Content[i].Value]; ok {
-			continue
-		}
-		out = append(out, mapping.Content[i], mapping.Content[i+1])
-	}
-	mapping.Content = out
-}
-
-func deleteNestedMappingKey(mapping *yaml.Node, keys ...string) {
-	if len(keys) == 0 {
-		return
-	}
-	current := mapping
-	for _, key := range keys[:len(keys)-1] {
-		current = mappingValue(current, key)
-		if current == nil || current.Kind != yaml.MappingNode {
-			return
-		}
-	}
-	deleteMappingKeys(current, keys[len(keys)-1])
-}
-
-func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			return mapping.Content[i+1]
-		}
-	}
-	return nil
 }
